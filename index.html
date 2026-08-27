@@ -962,22 +962,22 @@ function bindListEvents(container){
   document.getElementById('lf-cancel')?.addEventListener('click',cancelNewList);
   document.getElementById('lf-new')?.addEventListener('keydown',e=>{if(e.key==='Enter')submitNewList();if(e.key==='Escape')cancelNewList();e.stopPropagation();});
 
-  // Select list on click (header click = toggle open AND select)
+  // Select list on click
   container.querySelectorAll('[data-sellist]').forEach(el=>{
     el.addEventListener('click',e=>{
-      e.stopPropagation();
       const lid=el.dataset.sellist;
-      toggleList(lid);
+      // toggle open/close
+      const l=S.lists.find(x=>x.id===lid);
+      if(l){l.open=!l.open;persist();}
       selectList(lid);
+      renderLists();
     });
   });
 
   // Select node on single click
   container.querySelectorAll('[data-selnode]').forEach(el=>{
     el.addEventListener('click',e=>{
-      // don't fire if clicking grip/toggle/checkbox/actions
       if(e.target.closest('.tnode-grip,.tnode-tog,.tnode-cb,.tnode-acts,.tnode-inp'))return;
-      e.stopPropagation();
       const[lid,nid]=el.dataset.selnode.split('|');
       selectNode(lid,nid);
     });
