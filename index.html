@@ -490,13 +490,10 @@ function renderTabs(){
     tab.dataset.nid=note.id;
     tab.draggable=true;
 
-    const lbl=document.createElement('span');lbl.className='tab-label';lbl.textContent=note.name;
     const lbl=document.createElement('span');lbl.className='tab-label';lbl.textContent=note.name;lbl.title='Click the active tab to rename';
     const inp=document.createElement('input');inp.className='tab-input';inp.type='text';inp.value=note.name;inp.maxLength=60;
     const x=document.createElement('span');x.className='tab-x';x.textContent='×';
 
-    // click label = switch note
-    lbl.addEventListener('click',()=>switchNote(note.id));
     // First click opens a note; clicking its active tab again renames it.
     lbl.addEventListener('click',()=>{
       if(note.id===S.activeId)startTabRename(tab,inp,lbl);
@@ -505,8 +502,6 @@ function renderTabs(){
     // dblclick label = rename
     lbl.addEventListener('dblclick',e=>{
       e.stopPropagation();
-      tab.classList.add('renaming');inp.style.display='';lbl.style.display='none';
-      inp.focus();inp.select();
       startTabRename(tab,inp,lbl);
     });
     inp.addEventListener('keydown',e=>{
@@ -543,8 +538,6 @@ function renderTabs(){
     row.insertBefore(tab,newBtn);
   });
 }
-function finishRename(note,inp,lbl,tab){
-}
 function startTabRename(tab,inp,lbl){
   tab.classList.add('renaming');inp.style.display='';lbl.style.display='none';
   inp.focus();inp.select();
@@ -579,8 +572,6 @@ function newNote(focus=true){
       if(tab){
         const lbl=tab.querySelector('.tab-label');
         const inp=tab.querySelector('.tab-input');
-        tab.classList.add('renaming');inp.style.display='';lbl.style.display='none';
-        inp.focus();inp.select();
         startTabRename(tab,inp,lbl);
       }
     },30);
