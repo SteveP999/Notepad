@@ -34,7 +34,7 @@ body{background:var(--bg);color:var(--text);display:flex;flex-direction:column;}
 #search{width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:14px;padding:6px 8px;outline:none;}
 #search:focus{border-color:var(--accent);}
 #search::placeholder{color:var(--dimmer);}
-#btn-new{margin-left:auto;background:var(--accent);color:#111;border:none;border-radius:4px;font-size:13px;font-weight:700;padding:6px 14px;cursor:pointer;flex-shrink:0;}
+#btn-new{background:var(--accent);color:#111;border:none;border-radius:4px;font-size:13px;font-weight:700;padding:6px 14px;cursor:pointer;flex-shrink:0;}
 
 #savebar{display:flex;align-items:center;gap:6px;padding:4px 12px;background:#1e1e1e;border-bottom:1px solid var(--border);font-size:12px;flex-shrink:0;}
 #save-status{flex:1;font-size:12px;}
@@ -73,6 +73,13 @@ body{background:var(--bg);color:var(--text);display:flex;flex-direction:column;}
 #note-tag-path{font-size:11px;color:var(--dimmer);margin-left:auto;font-style:italic;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:300px;}
 
 #note-meta{padding:4px 14px;font-size:12px;color:var(--dimmer);border-bottom:1px solid var(--border);background:var(--surface);display:flex;gap:14px;flex-shrink:0;}
+
+#note-tree-wrap{border-bottom:1px solid var(--border);background:var(--surface);flex-shrink:0;}
+#note-tree-hdr{display:flex;align-items:center;gap:8px;padding:7px 14px;cursor:pointer;user-select:none;}
+#note-tree-hdr h3{font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--accent);}
+#note-tree-stat{font-size:11px;color:var(--dim);}
+#note-tree-tog{margin-left:auto;font-size:10px;color:var(--dim);}
+#note-tree-body{padding:0 14px 10px;max-height:240px;overflow-y:auto;}
 
 #editor-wrap{flex:1;display:flex;overflow:hidden;}
 #editor-area{flex:1;overflow-y:auto;padding:18px 22px;outline:none;font-family:var(--mono);font-size:15px;line-height:1.8;color:var(--text);background:var(--bg);white-space:pre-wrap;word-break:break-word;}
@@ -177,7 +184,7 @@ body{background:var(--bg);color:var(--text);display:flex;flex-direction:column;}
 .note-si-del:hover{color:#fff;background:var(--danger);border-radius:3px;}
 
 /* TAG PICKER */
-#tag-picker{position:fixed;background:var(--surface2);border:1px solid var(--border);border-radius:6px;box-shadow:0 8px 20px rgba(0,0,0,.8);z-index:9999;padding:6px;min-width:260px;max-width:340px;display:none;display:flex;flex-direction:column;max-height:min(70vh,560px);}
+#tag-picker{position:fixed;background:var(--surface2);border:1px solid var(--border);border-radius:6px;box-shadow:0 8px 20px rgba(0,0,0,.8);z-index:9999;padding:6px;min-width:260px;max-width:340px;display:none;flex-direction:column;max-height:min(70vh,560px);}
 #tag-picker.show{display:flex;}
 .tag-picker-title{font-size:11px;color:var(--dimmer);padding:4px 8px 6px;text-transform:uppercase;letter-spacing:.5px;flex-shrink:0;}
 #tag-search{flex-shrink:0;width:100%;background:var(--surface3);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:13px;padding:6px 8px;outline:none;margin:0 0 6px;}
@@ -229,6 +236,7 @@ body{background:var(--bg);color:var(--text);display:flex;flex-direction:column;}
     <div id="topbar">
       <div id="app-title">Notepad</div>
       <div id="search-wrap"><input id="search" type="text" placeholder="Search notes…" autocomplete="off"></div>
+      <button class="tool-btn" id="btn-tag-note" style="margin-left:auto;flex-shrink:0">🏷 Tag</button>
       <button id="btn-new">+ New Note</button>
     </div>
     <div id="savebar">
@@ -252,12 +260,19 @@ body{background:var(--bg);color:var(--text);display:flex;flex-direction:column;}
       <input type="file" id="img-in" accept="image/*" style="display:none">
       <button class="tool-btn" id="btn-dl">↓ .txt</button>
       <span id="note-tag-path"></span>
-      <button class="tool-btn" id="btn-tag-note">🏷 Tag</button>
     </div>
     <div id="note-meta">
       <span id="meta-created"></span>
       <span id="meta-words">0 words</span>
       <span id="meta-chars">0 chars</span>
+    </div>
+    <div id="note-tree-wrap" style="display:none">
+      <div id="note-tree-hdr">
+        <h3>Checklist</h3>
+        <span id="note-tree-stat"></span>
+        <span id="note-tree-tog">▾</span>
+      </div>
+      <div id="note-tree-body"></div>
     </div>
     <div id="editor-wrap">
       <div id="editor-area" contenteditable="true" data-placeholder="Start typing…"></div>
@@ -305,7 +320,26 @@ let tagPickerOpen=false;
 let tpOpenNodes=new Set(); // node ids expanded inside the tag picker
 let tpFilter='';
 let tabDrag={active:false,noteId:null,overNoteId:null,pos:null};
-let nodeDrag={active:false,listId:null,nodeId:null,overNodeId:null,overPos:null};
+let nodeDrag={active:false,scope:null,nodeId:null,overNodeId:null,overPos:null};
+let noteTreeOpen=true;
+
+// A "scope" string is either "list:<listId>" or "note:<noteId>" — it tells the generic
+// tree engine (add/edit/delete/indent/drag) which array of nodes it's operating on:
+// a shared List's items, or one note's own private checklist tree.
+function resolveScope(scope){
+  if(!scope)return null;
+  if(scope.startsWith('note:')){
+    const n=S.notes.find(x=>x.id===scope.slice(5));if(!n)return null;
+    if(!Array.isArray(n.tree))n.tree=[];
+    return{items:n.tree,kind:'note'};
+  }
+  if(scope.startsWith('list:')){
+    const l=S.lists.find(x=>x.id===scope.slice(5));if(!l)return null;
+    return{items:l.items,kind:'list'};
+  }
+  return null;
+}
+function renderTrees(){renderLists();renderNoteTree();}
 
 function persist(){
   try{localStorage.setItem(SK,JSON.stringify(S));return true;}
@@ -333,6 +367,11 @@ function sanitizeHTML(html){
   return t.innerHTML;
 }
 function plainText(html){const t=document.createElement('template');t.innerHTML=String(html||'');return t.content.textContent||'';}
+function normalizeNodes(nodes){
+  if(!Array.isArray(nodes))return[];
+  nodes.forEach(n=>{n.children=normalizeNodes(n.children);if(!('open' in n))n.open=true;if(!('done' in n))n.done=false;if(!('section' in n))n.section='';});
+  return nodes;
+}
 function normalizeState(data){
   if(!data||!Array.isArray(data.notes)||!Array.isArray(data.lists))return null;
   data.notes.forEach((n,i)=>{
@@ -347,12 +386,8 @@ function normalizeState(data){
     if(!existingText&&typeof n.content==='string'&&n.content.length)n.html=esc(n.content).replace(/\r?\n/g,'<br>');
     n.html=sanitizeHTML(n.html);
     if(!n.created)n.created=new Date().toISOString();
+    n.tree=normalizeNodes(n.tree||[]);
   });
-  function normalizeNodes(nodes){
-    if(!Array.isArray(nodes))return[];
-    nodes.forEach(n=>{n.children=normalizeNodes(n.children);if(!('open' in n))n.open=true;if(!('done' in n))n.done=false;if(!('section' in n))n.section='';});
-    return nodes;
-  }
   data.lists.forEach(l=>{l.items=normalizeNodes(l.items);if(!Array.isArray(l.sections))l.sections=[];if(!('open' in l))l.open=true;});
   if(!data.notes.some(n=>n.id===data.activeId))data.activeId=data.notes[0]?.id||null;
   return data;
@@ -638,6 +673,32 @@ function renderEditorArea(){
   const n=activeNote(),ea=document.getElementById('editor-area');if(!ea)return;
   ea.innerHTML=n?sanitizeHTML(n.html||''):'';updateCounts(ea.innerText||'');
   if(editorMode==='preview')renderPreview();
+  renderNoteTree();
+}
+// Renders the active note's own private nested checklist — same tree engine as the
+// sidebar Lists panel (add/edit/delete/indent/outdent/drag/collapse), scoped to
+// "note:<id>" so it never touches a shared List.
+function renderNoteTree(){
+  const wrap=document.getElementById('note-tree-wrap'),body=document.getElementById('note-tree-body'),stat=document.getElementById('note-tree-stat');
+  const n=activeNote();
+  if(!wrap||!body||!n){if(wrap)wrap.style.display='none';return;}
+  if(!Array.isArray(n.tree))n.tree=[];
+  wrap.style.display='';
+  body.style.display=noteTreeOpen?'block':'none';
+  document.getElementById('note-tree-tog').textContent=noteTreeOpen?'▾':'▸';
+  syncParents(n.tree);
+  const{t,d}=countAll(n.tree);
+  if(stat)stat.textContent=t?d+'/'+t:'';
+  const scope='note:'+n.id;
+  const isadding=addingTo?.scope===scope&&!addingTo.parentId;
+  body.innerHTML='<div data-scope="'+scope+'">'+
+    renderTree(n.tree,scope,'',[])+
+    (isadding?renderAddForm(false):'<button class="add-top-btn" data-addtop="'+scope+'">+ Add item</button>')+
+  '</div>';
+  bindTreeNodeEvents(body);
+  document.getElementById('add-inp')?.addEventListener('keydown',e=>{if(e.key==='Enter')submitAdd();if(e.key==='Escape')cancelAdd();e.stopPropagation();});
+  document.getElementById('add-ok')?.addEventListener('click',submitAdd);
+  document.getElementById('add-cancel')?.addEventListener('click',cancelAdd);
 }
 function renderMeta(){
   const n=activeNote(),el=document.getElementById('meta-created');if(!n||!el)return;
@@ -926,7 +987,7 @@ function makeNode(name){return{id:uid(),name:name.trim(),done:false,open:true,ch
 function findNode(nodes,id){for(const n of nodes){if(n.id===id)return n;const f=findNode(n.children,id);if(f)return f;}return null;}
 function findParent(nodes,id,par=null){for(const n of nodes){if(n.id===id)return par;const f=findParent(n.children,id,n);if(f!==undefined)return f;}return undefined;}
 function removeNode(nodes,id){const i=nodes.findIndex(n=>n.id===id);if(i>=0){nodes.splice(i,1);return true;}for(const n of nodes){if(removeNode(n.children,id))return true;}return false;}
-function extractNode(lst,nid){const p=findParent(lst.items,nid);const s=p?p.children:lst.items;const i=s.findIndex(n=>n.id===nid);return i<0?null:s.splice(i,1)[0];}
+function extractNode(items,nid){const p=findParent(items,nid);const s=p?p.children:items;const i=s.findIndex(n=>n.id===nid);return i<0?null:s.splice(i,1)[0];}
 function isAnc(node,tid){return node.id===tid||node.children.some(c=>isAnc(c,tid));}
 function setDoneAll(node,v){node.done=v;node.children.forEach(c=>setDoneAll(c,v));}
 function syncParents(nodes){nodes.forEach(n=>{if(n.children.length){syncParents(n.children);n.done=n.children.every(c=>c.done);n._indet=!n.done&&n.children.some(c=>c.done||c._indet);}else n._indet=false;});}
@@ -934,9 +995,9 @@ function countAll(nodes){let t=0,d=0;nodes.forEach(n=>{t++;if(n.done)d++;const s
 function noteCountForNode(node){const ids=allNodeIds([node]);return S.notes.filter(n=>ids.includes(n.nodeTag)).length;}
 
 // ── NODE DRAG ─────────────────────────────────────────────────────────────────
-function onGripDown(e,lid,nid){
+function onGripDown(e,scope,nid){
   e.preventDefault();e.stopPropagation();
-  nodeDrag={active:true,listId:lid,nodeId:nid,overNodeId:null,overPos:null};
+  nodeDrag={active:true,scope,nodeId:nid,overNodeId:null,overPos:null};
   document.querySelector('[data-nodeid="'+nid+'"]')?.classList.add('dragging');
   document.addEventListener('mousemove',onNodeMove);
   document.addEventListener('mouseup',onNodeUp);
@@ -949,9 +1010,11 @@ function onNodeMove(e){
   document.querySelectorAll('.drop-line.show').forEach(x=>x.classList.remove('show'));
   document.querySelectorAll('.drag-over-inside').forEach(x=>x.classList.remove('drag-over-inside'));
   if(!te){nodeDrag.overNodeId=null;return;}
+  // Never let a drag cross between a List's shared tree and a note's own private tree.
+  if(te.closest('[data-scope]')?.dataset.scope!==nodeDrag.scope){nodeDrag.overNodeId=null;return;}
   const tid=te.dataset.nodeid;
-  const lst=S.lists.find(l=>l.id===nodeDrag.listId);if(!lst)return;
-  const dn=findNode(lst.items,nodeDrag.nodeId);if(!dn||isAnc(dn,tid))return;
+  const ctx=resolveScope(nodeDrag.scope);if(!ctx)return;
+  const dn=findNode(ctx.items,nodeDrag.nodeId);if(!dn||isAnc(dn,tid))return;
   const rect=tr.getBoundingClientRect(),ry=(e.clientY-rect.top)/rect.height;
   const pos=ry<0.25?'before':ry>0.75?'after':'inside';
   nodeDrag.overNodeId=tid;nodeDrag.overPos=pos;
@@ -964,12 +1027,12 @@ function onNodeUp(){
   document.querySelectorAll('.drop-line.show').forEach(x=>x.classList.remove('show'));
   document.querySelectorAll('.drag-over-inside').forEach(x=>x.classList.remove('drag-over-inside'));
   if(!nodeDrag.active||!nodeDrag.overNodeId){nodeDrag.active=false;return;}
-  const lst=S.lists.find(l=>l.id===nodeDrag.listId);if(!lst){nodeDrag.active=false;return;}
-  const dn=findNode(lst.items,nodeDrag.nodeId);if(!dn||isAnc(dn,nodeDrag.overNodeId)){nodeDrag.active=false;return;}
-  const ex=extractNode(lst,nodeDrag.nodeId);if(!ex){nodeDrag.active=false;return;}
-  if(nodeDrag.overPos==='inside'){const t=findNode(lst.items,nodeDrag.overNodeId);if(t){t.children.push(ex);t.open=true;}else lst.items.push(ex);}
-  else{const tp=findParent(lst.items,nodeDrag.overNodeId);const s=tp?tp.children:lst.items;const ti=s.findIndex(n=>n.id===nodeDrag.overNodeId);if(ti<0)lst.items.push(ex);else if(nodeDrag.overPos==='before')s.splice(ti,0,ex);else s.splice(ti+1,0,ex);}
-  nodeDrag.active=false;sched();renderLists();
+  const ctx=resolveScope(nodeDrag.scope);if(!ctx){nodeDrag.active=false;return;}
+  const dn=findNode(ctx.items,nodeDrag.nodeId);if(!dn||isAnc(dn,nodeDrag.overNodeId)){nodeDrag.active=false;return;}
+  const ex=extractNode(ctx.items,nodeDrag.nodeId);if(!ex){nodeDrag.active=false;return;}
+  if(nodeDrag.overPos==='inside'){const t=findNode(ctx.items,nodeDrag.overNodeId);if(t){t.children.push(ex);t.open=true;}else ctx.items.push(ex);}
+  else{const tp=findParent(ctx.items,nodeDrag.overNodeId);const s=tp?tp.children:ctx.items;const ti=s.findIndex(n=>n.id===nodeDrag.overNodeId);if(ti<0)ctx.items.push(ex);else if(nodeDrag.overPos==='before')s.splice(ti,0,ex);else s.splice(ti+1,0,ex);}
+  nodeDrag.active=false;sched();renderTrees();
 }
 
 // ── LIST CRUD ─────────────────────────────────────────────────────────────────
@@ -1017,59 +1080,69 @@ function removeSection(lid,sec){
 function setNodeSec(lid,nid,sec){const l=S.lists.find(x=>x.id===lid);if(!l)return;const n=findNode(l.items,nid);if(n){n.section=sec;sched();renderLists();}}
 
 // ── NODE CRUD ─────────────────────────────────────────────────────────────────
-function startAdd(lid,pid){addingTo={listId:lid,parentId:pid||null};renderLists();setTimeout(()=>document.getElementById('add-inp')?.focus(),30);}
+// Every function here takes a "scope" ("list:<id>" or "note:<id>") instead of a bare
+// list id, so the exact same add/edit/delete/indent/drag engine runs a shared List's
+// tree in the sidebar AND a single note's own private checklist tree.
+function startAdd(scope,pid){addingTo={scope,parentId:pid||null};renderTrees();setTimeout(()=>document.getElementById('add-inp')?.focus(),30);}
 function submitAdd(){
   const v=document.getElementById('add-inp')?.value.trim();if(!v){cancelAdd();return;}
-  const l=S.lists.find(x=>x.id===addingTo.listId);if(!l){cancelAdd();return;}
+  const ctx=resolveScope(addingTo?.scope);if(!ctx){cancelAdd();return;}
   const node=makeNode(v);
-  if(!addingTo.parentId)l.items.push(node);
-  else{const p=findNode(l.items,addingTo.parentId);if(p){p.children.push(node);p.open=true;}}
-  addingTo=null;sched();renderLists();
+  if(!addingTo.parentId)ctx.items.push(node);
+  else{const p=findNode(ctx.items,addingTo.parentId);if(p){p.children.push(node);p.open=true;}}
+  addingTo=null;sched();renderTrees();
 }
-function cancelAdd(){addingTo=null;renderLists();}
-function startEdit(nid){editingNode=nid;renderLists();setTimeout(()=>{const el=document.getElementById('einp-'+nid);if(el){el.focus();el.select();}},20);}
-function submitEdit(lid,nid){
-  const l=S.lists.find(x=>x.id===lid),v=document.getElementById('einp-'+nid)?.value.trim();
-  if(l&&v){const n=findNode(l.items,nid);if(n)n.name=v;}
-  editingNode=null;sched();renderLists();if(selection?.nodeId===nid)renderContextBar();
+function cancelAdd(){addingTo=null;renderTrees();}
+function startEdit(nid){editingNode=nid;renderTrees();setTimeout(()=>{const el=document.getElementById('einp-'+nid);if(el){el.focus();el.select();}},20);}
+function submitEdit(scope,nid){
+  const ctx=resolveScope(scope),v=document.getElementById('einp-'+nid)?.value.trim();
+  if(ctx&&v){const n=findNode(ctx.items,nid);if(n)n.name=v;}
+  editingNode=null;sched();renderTrees();if(selection?.nodeId===nid)renderContextBar();
 }
-function cancelEdit(){editingNode=null;renderLists();}
-function deleteNode(lid,nid){
-  const l=S.lists.find(x=>x.id===lid);if(!l)return;
-  const node=findNode(l.items,nid);if(!node)return;
+function cancelEdit(){editingNode=null;renderTrees();}
+function deleteNode(scope,nid){
+  const ctx=resolveScope(scope);if(!ctx)return;
+  const node=findNode(ctx.items,nid);if(!node)return;
   const ids=allNodeIds([node]);
   const childCount=ids.length-1;
-  const noteCount=S.notes.filter(n=>ids.includes(n.nodeTag)).length;
   let msg='Delete "'+node.name+'"?';
   const extras=[];
   if(childCount>0)extras.push(childCount+' nested item'+(childCount!==1?'s':''));
-  if(noteCount>0)extras.push(noteCount+' note'+(noteCount!==1?'s':'')+' tagged to it (they will become untagged, not deleted)');
+  if(ctx.kind==='list'){
+    const noteCount=S.notes.filter(n=>ids.includes(n.nodeTag)).length;
+    if(noteCount>0)extras.push(noteCount+' note'+(noteCount!==1?'s':'')+' tagged to it (they will become untagged, not deleted)');
+  }
   if(extras.length)msg+=' This also removes '+extras.join(' and ')+'.';
   msg+=' This cannot be undone here.';
   if(!confirm(msg))return;
-  S.notes.forEach(n=>{if(ids.includes(n.nodeTag))n.nodeTag=null;});
-  removeNode(l.items,nid);
-  if(selection?.nodeId&&ids.includes(selection.nodeId))clearSelection();
-  sched();renderAll();
+  if(ctx.kind==='list'){
+    S.notes.forEach(n=>{if(ids.includes(n.nodeTag))n.nodeTag=null;});
+    removeNode(ctx.items,nid);
+    if(selection?.nodeId&&ids.includes(selection.nodeId))clearSelection();
+    sched();renderAll();
+  }else{
+    removeNode(ctx.items,nid);
+    sched();renderNoteTree();
+  }
 }
-function toggleNodeOpen(lid,nid){const l=S.lists.find(x=>x.id===lid);if(!l)return;const n=findNode(l.items,nid);if(n){n.open=!n.open;persist();renderLists();}}
-function toggleDone(lid,nid){
-  const l=S.lists.find(x=>x.id===lid);if(!l)return;
-  const n=findNode(l.items,nid);if(!n)return;
-  setDoneAll(n,!n.done);syncParents(l.items);sched();renderLists();
+function toggleNodeOpen(scope,nid){const ctx=resolveScope(scope);if(!ctx)return;const n=findNode(ctx.items,nid);if(n){n.open=!n.open;persist();renderTrees();}}
+function toggleDone(scope,nid){
+  const ctx=resolveScope(scope);if(!ctx)return;
+  const n=findNode(ctx.items,nid);if(!n)return;
+  setDoneAll(n,!n.done);syncParents(ctx.items);sched();renderTrees();
 }
-function indentNode(lid,nid){
-  const l=S.lists.find(x=>x.id===lid);if(!l)return;
-  const p=findParent(l.items,nid),s=p?p.children:l.items;
+function indentNode(scope,nid){
+  const ctx=resolveScope(scope);if(!ctx)return;
+  const p=findParent(ctx.items,nid),s=p?p.children:ctx.items;
   const i=s.findIndex(n=>n.id===nid);if(i<1)return;
-  const[node]=s.splice(i,1);s[i-1].children.push(node);s[i-1].open=true;sched();renderLists();
+  const[node]=s.splice(i,1);s[i-1].children.push(node);s[i-1].open=true;sched();renderTrees();
 }
-function outdentNode(lid,nid){
-  const l=S.lists.find(x=>x.id===lid);if(!l)return;
-  const p=findParent(l.items,nid);if(!p)return;
-  const gp=findParent(l.items,p.id),gs=gp?gp.children:l.items;
+function outdentNode(scope,nid){
+  const ctx=resolveScope(scope);if(!ctx)return;
+  const p=findParent(ctx.items,nid);if(!p)return;
+  const gp=findParent(ctx.items,p.id),gs=gp?gp.children:ctx.items;
   const i=p.children.findIndex(n=>n.id===nid);const[node]=p.children.splice(i,1);
-  const pi=gs.findIndex(n=>n.id===p.id);gs.splice(pi+1,0,node);sched();renderLists();
+  const pi=gs.findIndex(n=>n.id===p.id);gs.splice(pi+1,0,node);sched();renderTrees();
 }
 
 // ── RENDER LISTS ──────────────────────────────────────────────────────────────
@@ -1087,7 +1160,7 @@ function renderLists(){
       if(!lst.sections)lst.sections=[];
       syncParents(lst.items);
       const{t,d}=countAll(lst.items);
-      const nc=S.notes.filter(n=>n.nodeTag&&selectionIds().includes(n.nodeTag)&&(lst.id===n.nodeTag||allNodeIds(lst.items).includes(n.nodeTag))).length;
+      const scope='list:'+lst.id;
       const ren=listForm?.mode==='rl'&&listForm?.id===lst.id;
       const isSel=selection?.type==='list'&&selection?.listId===lst.id&&!selection?.nodeId;
       const cs=activeSec[lst.id]||'';
@@ -1098,15 +1171,15 @@ function renderLists(){
           '<span class="lcard-stat">'+d+'/'+t+'</span>'+
           '<div class="lcard-acts">'+
             '<button class="lc-btn" data-ren="'+lst.id+'" title="Rename">✎</button>'+
-            '<button class="lc-btn" data-addtop="'+lst.id+'" title="Add item">+</button>'+
+            '<button class="lc-btn" data-addtop="'+scope+'" title="Add item">+</button>'+
             '<button class="lc-btn del" data-dell="'+lst.id+'" title="Delete this list">×</button>'+
           '</div>'+
         '</div>'+
-        '<div class="lcard-body">'+
+        '<div class="lcard-body" data-scope="'+scope+'">'+
           (lst.sections.length?'<div class="sec-filter"><button class="sec-chip'+(cs===''?' active':'')+'" data-sf="'+lst.id+'|">All</button>'+lst.sections.map(s=>'<button class="sec-chip'+(cs===s?' active':'')+'" data-sf="'+lst.id+'|'+esc(s)+'">'+esc(s)+'</button>').join('')+'</div>':'')+
           '<div class="tree-hint">⠿ drag to move · Tab=indent · Shift+Tab=outdent · click=filter · dbl-click=edit</div>'+
-          renderTree(lst.items,lst.id,cs,lst.sections)+
-          (addingTo?.listId===lst.id&&!addingTo.parentId?renderAddForm(false):'<button class="add-top-btn" data-addtop="'+lst.id+'">+ Add item</button>')+
+          renderTree(lst.items,scope,cs,lst.sections)+
+          (addingTo?.scope===scope&&!addingTo.parentId?renderAddForm(false):'<button class="add-top-btn" data-addtop="'+scope+'">+ Add item</button>')+
         '</div></div>';
     });
     C.innerHTML=h;
@@ -1118,39 +1191,39 @@ function renderAddForm(child){
   return'<div class="add-row'+(child?' child':'')+'"><input id="add-inp" type="text" placeholder="Item name…" maxlength="200"><button class="ok" id="add-ok">+</button><button class="cancel" id="add-cancel">✕</button></div>';
 }
 function hasSec(node,sec){return node.section===sec||node.children.some(c=>hasSec(c,sec));}
-function renderTree(nodes,lid,sf,secs){
+function renderTree(nodes,scope,sf,secs){
   if(!nodes.length)return'';
   let h='';
   nodes.forEach(node=>{
     if(sf&&!hasSec(node,sf))return;
     const hk=node.children.length>0;
     const ised=editingNode===node.id;
-    const isadding=addingTo?.listId===lid&&addingTo?.parentId===node.id;
+    const isadding=addingTo?.scope===scope&&addingTo?.parentId===node.id;
     const isSel=selection?.nodeId===node.id;
     const nc=noteCountForNode(node);
     const isDrag=nodeDrag.active&&nodeDrag.nodeId===node.id;
     h+='<div id="dlb-'+node.id+'" class="drop-line"></div>'+
       '<div class="tnode'+(isDrag?' dragging':'')+'" data-nodeid="'+node.id+'">'+
-        '<div class="tnode-row'+(isSel?' sel':'')+'" data-selnode="'+lid+'|'+node.id+'">'+
-          '<span class="tnode-grip" data-grip="'+lid+'|'+node.id+'" title="Drag to move this item">⠿</span>'+
-          '<span class="tnode-tog'+(hk?'" data-tog="'+lid+'|'+node.id+'"':' " style="cursor:default;color:transparent"')+'>'+
+        '<div class="tnode-row'+(isSel?' sel':'')+'" data-selnode="'+scope+'|'+node.id+'">'+
+          '<span class="tnode-grip" data-grip="'+scope+'|'+node.id+'" title="Drag to move this item">⠿</span>'+
+          '<span class="tnode-tog'+(hk?'" data-tog="'+scope+'|'+node.id+'"':' " style="cursor:default;color:transparent"')+'>'+
             (hk?(node.open?'▾':'▸'):'·')+'</span>'+
-          '<input type="checkbox" class="tnode-cb" '+(node.done?'checked':'')+' data-cb="'+lid+'|'+node.id+'">'+
-          (ised?'<input id="einp-'+node.id+'" class="tnode-inp" type="text" value="'+esc(node.name)+'" maxlength="200" data-einp="'+lid+'|'+node.id+'">'
+          '<input type="checkbox" class="tnode-cb" '+(node.done?'checked':'')+' data-cb="'+scope+'|'+node.id+'">'+
+          (ised?'<input id="einp-'+node.id+'" class="tnode-inp" type="text" value="'+esc(node.name)+'" maxlength="200" data-einp="'+scope+'|'+node.id+'">'
             :'<span class="tnode-lbl'+(node.done?' done':'')+'" data-elbl="'+node.id+'">'+esc(node.name)+'</span>'+
               (nc?'<span class="tnode-nc">📝'+nc+'</span>':'')+
               (node.section?'<span class="tnode-sec">['+esc(node.section)+']</span>':''))+
           '<div class="tnode-acts">'+
-            (secs&&secs.length?'<select class="ta-btn" data-secselt="'+lid+'|'+node.id+'" style="font-size:11px;background:var(--surface3);border:1px solid var(--border);border-radius:2px;color:var(--text);padding:1px 3px;"><option value="">—</option>'+secs.map(s=>'<option value="'+esc(s)+'"'+(node.section===s?' selected':'')+'>'+esc(s)+'</option>').join('')+'</select>':'')+
-            '<button class="ta-btn" data-addc="'+lid+'|'+node.id+'" title="Add child item">+</button>'+
-            '<button class="ta-btn" data-ind="'+lid+'|'+node.id+'" title="Indent">→</button>'+
-            '<button class="ta-btn" data-outd="'+lid+'|'+node.id+'" title="Outdent">←</button>'+
+            (secs&&secs.length?'<select class="ta-btn" data-secselt="'+scope+'|'+node.id+'" style="font-size:11px;background:var(--surface3);border:1px solid var(--border);border-radius:2px;color:var(--text);padding:1px 3px;"><option value="">—</option>'+secs.map(s=>'<option value="'+esc(s)+'"'+(node.section===s?' selected':'')+'>'+esc(s)+'</option>').join('')+'</select>':'')+
+            '<button class="ta-btn" data-addc="'+scope+'|'+node.id+'" title="Add child item">+</button>'+
+            '<button class="ta-btn" data-ind="'+scope+'|'+node.id+'" title="Indent">→</button>'+
+            '<button class="ta-btn" data-outd="'+scope+'|'+node.id+'" title="Outdent">←</button>'+
             '<button class="ta-btn" data-edbtn="'+node.id+'" title="Rename">✎</button>'+
-            '<button class="ta-btn del" data-deln="'+lid+'|'+node.id+'" title="Delete">×</button>'+
+            '<button class="ta-btn del" data-deln="'+scope+'|'+node.id+'" title="Delete">×</button>'+
           '</div>'+
         '</div>'+
         (isadding?renderAddForm(true):'')+
-        (hk?'<div class="tnode-children" style="'+(node.open?'display:block':'display:none')+'">'+renderTree(node.children,lid,'',secs)+'</div>':'')+
+        (hk?'<div class="tnode-children" style="'+(node.open?'display:block':'display:none')+'">'+renderTree(node.children,scope,'',secs)+'</div>':'')+
       '</div>'+
       '<div id="dla-'+node.id+'" class="drop-line"></div>';
   });
@@ -1184,7 +1257,6 @@ function bindListEvents(C){
     if(ri)ri.addEventListener('keydown',e=>{if(e.key==='Enter')submitRenameList(lst.id);if(e.key==='Escape'){listForm=null;renderLists();}e.stopPropagation();});
   });
   C.querySelectorAll('[data-dell]').forEach(b=>b.addEventListener('click',e=>{e.stopPropagation();deleteList(b.dataset.dell);}));
-  C.querySelectorAll('[data-addtop]').forEach(b=>b.addEventListener('click',e=>{e.stopPropagation();startAdd(b.dataset.addtop,null);}));
   C.querySelectorAll('[data-sf]').forEach(b=>b.addEventListener('click',e=>{e.stopPropagation();const[l,s]=b.dataset.sf.split('|');activeSec[l]=s;renderLists();}));
 
   // add form
@@ -1192,45 +1264,43 @@ function bindListEvents(C){
   document.getElementById('add-ok')?.addEventListener('click',submitAdd);
   document.getElementById('add-cancel')?.addEventListener('click',cancelAdd);
 
-  // grip
-  C.querySelectorAll('[data-grip]').forEach(el=>{const[l,n]=el.dataset.grip.split('|');el.addEventListener('mousedown',e=>onGripDown(e,l,n));});
+  bindTreeNodeEvents(C);
 
-  // toggle open
-  C.querySelectorAll('[data-tog]').forEach(el=>{const[l,n]=el.dataset.tog.split('|');el.addEventListener('click',e=>{e.stopPropagation();toggleNodeOpen(l,n);});});
+  C.querySelectorAll('[data-secselt]').forEach(s=>{const[sc,n]=s.dataset.secselt.split('|');s.addEventListener('change',e=>{e.stopPropagation();setNodeSec(sc.slice(5),n,s.value);});});
+}
 
-  // checkbox
-  C.querySelectorAll('[data-cb]').forEach(cb=>{const[l,n]=cb.dataset.cb.split('|');cb.addEventListener('change',()=>toggleDone(l,n));});
-
-  // node row click = select
+// Shared node-level bindings used by both the sidebar Lists tree and a note's own
+// embedded checklist tree — each element carries its own "scope|nodeId" so one
+// container can even mix several scopes (the Lists panel renders one per list).
+function bindTreeNodeEvents(C){
+  C.querySelectorAll('[data-grip]').forEach(el=>{const[sc,n]=el.dataset.grip.split('|');el.addEventListener('mousedown',e=>onGripDown(e,sc,n));});
+  C.querySelectorAll('[data-tog]').forEach(el=>{const[sc,n]=el.dataset.tog.split('|');el.addEventListener('click',e=>{e.stopPropagation();toggleNodeOpen(sc,n);});});
+  C.querySelectorAll('[data-cb]').forEach(cb=>{const[sc,n]=cb.dataset.cb.split('|');cb.addEventListener('change',()=>toggleDone(sc,n));});
+  // node row click = select-to-filter (List scope only — a note's own checklist has no filtering concept)
   C.querySelectorAll('[data-selnode]').forEach(el=>{
     el.addEventListener('click',function(e){
       if(e.target.closest('.tnode-grip,.tnode-tog,.tnode-cb,.tnode-acts,.tnode-inp'))return;
-      const[l,n]=this.dataset.selnode.split('|');
-      selectNode(l,n);
+      const[sc,n]=this.dataset.selnode.split('|');
+      if(sc.startsWith('list:'))selectNode(sc.slice(5),n);
     });
   });
-
-  // edit label dblclick
   C.querySelectorAll('[data-elbl]').forEach(el=>{el.addEventListener('dblclick',e=>{e.stopPropagation();startEdit(el.dataset.elbl);});});
-
-  // edit input
   C.querySelectorAll('[data-einp]').forEach(inp=>{
-    const[l,n]=inp.dataset.einp.split('|');
+    const[sc,n]=inp.dataset.einp.split('|');
     inp.addEventListener('keydown',e=>{
-      if(e.key==='Enter')submitEdit(l,n);if(e.key==='Escape')cancelEdit();
-      if(e.key==='Tab'&&!e.shiftKey){e.preventDefault();indentNode(l,n);}
-      if(e.key==='Tab'&&e.shiftKey){e.preventDefault();outdentNode(l,n);}
+      if(e.key==='Enter')submitEdit(sc,n);if(e.key==='Escape')cancelEdit();
+      if(e.key==='Tab'&&!e.shiftKey){e.preventDefault();indentNode(sc,n);}
+      if(e.key==='Tab'&&e.shiftKey){e.preventDefault();outdentNode(sc,n);}
       e.stopPropagation();
     });
-    inp.addEventListener('blur',()=>submitEdit(l,n));
+    inp.addEventListener('blur',()=>submitEdit(sc,n));
   });
-
-  C.querySelectorAll('[data-addc]').forEach(b=>{const[l,n]=b.dataset.addc.split('|');b.addEventListener('click',e=>{e.stopPropagation();startAdd(l,n);});});
-  C.querySelectorAll('[data-ind]').forEach(b=>{const[l,n]=b.dataset.ind.split('|');b.addEventListener('click',e=>{e.stopPropagation();indentNode(l,n);});});
-  C.querySelectorAll('[data-outd]').forEach(b=>{const[l,n]=b.dataset.outd.split('|');b.addEventListener('click',e=>{e.stopPropagation();outdentNode(l,n);});});
+  C.querySelectorAll('[data-addc]').forEach(b=>{const[sc,n]=b.dataset.addc.split('|');b.addEventListener('click',e=>{e.stopPropagation();startAdd(sc,n);});});
+  C.querySelectorAll('[data-ind]').forEach(b=>{const[sc,n]=b.dataset.ind.split('|');b.addEventListener('click',e=>{e.stopPropagation();indentNode(sc,n);});});
+  C.querySelectorAll('[data-outd]').forEach(b=>{const[sc,n]=b.dataset.outd.split('|');b.addEventListener('click',e=>{e.stopPropagation();outdentNode(sc,n);});});
   C.querySelectorAll('[data-edbtn]').forEach(b=>{b.addEventListener('click',e=>{e.stopPropagation();startEdit(b.dataset.edbtn);});});
-  C.querySelectorAll('[data-deln]').forEach(b=>{const[l,n]=b.dataset.deln.split('|');b.addEventListener('click',e=>{e.stopPropagation();deleteNode(l,n);});});
-  C.querySelectorAll('[data-secselt]').forEach(s=>{const[l,n]=s.dataset.secselt.split('|');s.addEventListener('change',e=>{e.stopPropagation();setNodeSec(l,n,s.value);});});
+  C.querySelectorAll('[data-deln]').forEach(b=>{const[sc,n]=b.dataset.deln.split('|');b.addEventListener('click',e=>{e.stopPropagation();deleteNode(sc,n);});});
+  C.querySelectorAll('[data-addtop]').forEach(b=>b.addEventListener('click',e=>{e.stopPropagation();startAdd(b.dataset.addtop,null);}));
 }
 
 // ── SIDEBAR TABS ──────────────────────────────────────────────────────────────
@@ -1269,6 +1339,11 @@ function bindTopEvents(){
     const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=(n.name||'note').replace(/[^a-z0-9_-]/gi,'_')+'.txt';a.click();URL.revokeObjectURL(a.href);
   });
   document.getElementById('btn-tag-note').addEventListener('click',e=>{e.stopPropagation();tagPickerOpen?closeTagPicker():openTagPicker();});
+  document.getElementById('note-tree-hdr').addEventListener('click',()=>{
+    noteTreeOpen=!noteTreeOpen;
+    document.getElementById('note-tree-body').style.display=noteTreeOpen?'block':'none';
+    document.getElementById('note-tree-tog').textContent=noteTreeOpen?'▾':'▸';
+  });
   document.getElementById('tag-search').addEventListener('input',e=>{tpFilter=e.target.value;renderTagPickerBody();});
   document.getElementById('tag-search').addEventListener('click',e=>e.stopPropagation());
   document.getElementById('btn-edit').addEventListener('click',()=>setMode('edit'));
